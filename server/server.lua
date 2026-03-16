@@ -89,12 +89,13 @@ RegisterServerEvent('bcc-train:UpdateTrainSpawnVar', function(spawned, trainNetI
             Character.identifier ..
             _U('charIdWeb') ..
             Character.charIdentifier)
-    else
+else
         -- Broadcast blip removal before clearing
         local prevData = ActiveTrains[_source]
         ActiveTrains[_source] = nil
         if prevData then
             TriggerClientEvent('bcc-train:RemoveTrainBlip', -1, { trainId = prevData.trainId })
+            TrainCoords[prevData.trainId] = nil -- PŘIDÁNO: vyčistí uloženou pozici
         end
         discord:sendMessage(
             _U('trainNotSpawnedWeb') ..
@@ -630,4 +631,31 @@ VORPcore.Callback.Register('bcc-train:ClaimServiceTrain', function(source, cb, t
         '\nPřevzal vlak z provozu (/servis).')
 
     cb(result)
+end)
+
+RegisterServerEvent('bcc-train:SyncTrainCondition')
+AddEventHandler('bcc-train:SyncTrainCondition', function(trainId, newCondition)
+    if not trainId or newCondition == nil then return end
+    -- Uložení nového stavu rovnou do databáze
+    MySQL.query.await('UPDATE train SET `condition` = ? WHERE `trainid` = ?', { newCondition, trainId })
+end)
+
+-- Ukládání posledních známých pozic vlaků
+local TrainCoords = {}
+
+RegisterServerEvent('bcc-train:UpdateCoords')
+AddEventHandler('bcc-train:UpdateCoords', function(trainId, coords)
+    if trainId and coords then
+        TrainCoords[trainId] = coords
+    end
+end)
+
+-- Každé 2 vteřiny rozešle všechny dostupné pozice vlaků všem hráčům
+CreateThread(function()
+    while true do
+        Wait(2000)
+        if next(TrainCoords) then
+            TriggerClientEvent('bcc-train:SyncAllCoords', -1, TrainCoords)
+        end
+    end
 end)

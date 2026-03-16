@@ -191,7 +191,8 @@ end)
 function SetupTrainHandlers(trainCfg, myTrainData)
     if trainCfg.blip.show then
         local trainBlip = Citizen.InvokeNative(0x23f74c2fda6e7c61, -1749618580, MyTrain) -- BlipAddForEntity
-        SetBlipSprite(trainBlip, joaat(trainCfg.blip.sprite), true)
+        -- OPRAVA: Odstraněno joaat() u spritu
+        SetBlipSprite(trainBlip, trainCfg.blip.sprite, true)
         Citizen.InvokeNative(0x9CB1A1623062F402, trainBlip, trainCfg.blip.name) -- SetBlipNameFromPlayerString
         Citizen.InvokeNative(0x662D364ABF16DE2F, trainBlip, joaat(Config.blipColors[trainCfg.blip.color])) -- BlipAddModifier
     end
@@ -253,7 +254,7 @@ AddEventHandler('bcc-train:TrainHandler', function(trainCfg, myTrainData)
                     VORPcore.NotifyRightTip(_U('tooFarFromTrain'), 4000)
                 end
                 -- Uvolni vlak k převzetí místo smazání
-                MyTrain = nil  -- ukončí všechny while MyTrain smyčky okamžitě
+                MyTrain = nil -- ukončí všechny while MyTrain smyčky okamžitě
                 TriggerServerEvent('bcc-train:AbandonTrain')
                 break
             end
@@ -269,7 +270,9 @@ AddEventHandler('bcc-train:TrainHandler', function(trainCfg, myTrainData)
             else
                 if DrivingMenuOpened then
                     DrivingMenuOpened = false
-                    SendNUIMessage({ type = 'closeStationMenu' })
+                    SendNUIMessage({
+                        type = 'closeStationMenu'
+                    })
                     HideHUD()
                     ForwardActive = false
                     BackwardActive = false
@@ -282,25 +285,34 @@ end)
 
 AddEventHandler('bcc-train:FuelDecreaseHandler', function(trainCfg, myTrainData)
     local fuelEmpty = false
+    local fuelTimer = 0
     while MyTrain do
         Wait(1000)
         if EngineStarted and TrainFuel >= 1 then
-            Wait(trainCfg.fuel.decreaseTime * 1000)
-            local fuel = VORPcore.Callback.TriggerAwait('bcc-train:DecTrainFuel', TrainId)
-            if fuel then
-                FuelUpdate(fuel)
+            fuelTimer = fuelTimer + 1
+            if fuelTimer >= trainCfg.fuel.decreaseTime then
+                fuelTimer = 0
+                local fuel = VORPcore.Callback.TriggerAwait('bcc-train:DecTrainFuel', TrainId)
+                if fuel then
+                    FuelUpdate(fuel)
+                end
             end
         else
-            Citizen.InvokeNative(0x9F29999DFDF2AEB8, MyTrain, 0.0) -- SetTrainMaxSpeed
+            fuelTimer = 0
+            -- Zde bylo SetTrainMaxSpeed(0.0), to je smazáno kvůli setrvačnosti
         end
         if (TrainFuel or 0) <= 0 and not fuelEmpty then
             fuelEmpty = true
             EngineStarted = false
-            ForwardActive  = false
+            ForwardActive = false
             BackwardActive = false
-            Citizen.InvokeNative(0x9F29999DFDF2AEB8, MyTrain, 0.0) -- SetTrainMaxSpeed
             if DrivingMenuOpened then
-                SendNUIMessage({ type = 'updateDriving', engineStarted = false, forwardActive = false, backwardActive = false })
+                SendNUIMessage({
+                    type = 'updateDriving',
+                    engineStarted = false,
+                    forwardActive = false,
+                    backwardActive = false
+                })
             end
         elseif fuelEmpty and TrainFuel >= 1 then
             fuelEmpty = false
@@ -310,25 +322,33 @@ end)
 
 AddEventHandler('bcc-train:CondDecreaseHandler', function(trainCfg, myTrainData)
     local conditionEmpty = false
+    local condTimer = 0
     while MyTrain do
         Wait(1000)
         if EngineStarted and TrainCondition >= 1 then
-            Wait(trainCfg.condition.decreaseTime * 1000)
-            local cond = VORPcore.Callback.TriggerAwait('bcc-train:DecTrainCond', TrainId)
-            if cond then
-                ConditionUpdate(cond)
+            condTimer = condTimer + 1
+            if condTimer >= trainCfg.condition.decreaseTime then
+                condTimer = 0
+                local cond = VORPcore.Callback.TriggerAwait('bcc-train:DecTrainCond', TrainId)
+                if cond then
+                    ConditionUpdate(cond)
+                end
             end
         else
-            Citizen.InvokeNative(0x9F29999DFDF2AEB8, MyTrain, 0.0) -- SetTrainMaxSpeed
+            condTimer = 0
         end
         if (TrainCondition or 0) <= 0 and not conditionEmpty then
             conditionEmpty = true
             EngineStarted = false
-            ForwardActive  = false
+            ForwardActive = false
             BackwardActive = false
-            Citizen.InvokeNative(0x9F29999DFDF2AEB8, MyTrain, 0.0) -- SetTrainMaxSpeed
             if DrivingMenuOpened then
-                SendNUIMessage({ type = 'updateDriving', engineStarted = false, forwardActive = false, backwardActive = false })
+                SendNUIMessage({
+                    type = 'updateDriving',
+                    engineStarted = false,
+                    forwardActive = false,
+                    backwardActive = false
+                })
             end
         elseif conditionEmpty and TrainCondition >= 1 then
             conditionEmpty = false
@@ -338,8 +358,8 @@ end)
 
 -- Open Train Inventory + camera mode toggle
 AddEventHandler('bcc-train:TrainActions', function()
-    local invKey    = Config.keys.inventory
-    local spaceKey  = joaat("INPUT_JUMP")  -- mezerník / skok
+    local invKey = Config.keys.inventory
+    local spaceKey = joaat("INPUT_JUMP") -- mezerník / skok
     while MyTrain do
         local playerPed = PlayerPedId()
         Wait(0)
@@ -349,9 +369,12 @@ AddEventHandler('bcc-train:TrainActions', function()
             if Citizen.InvokeNative(0x580417101DDB492F, 0, spaceKey) then -- IsControlJustPressed
                 CameraMode = false
                 SetNuiFocus(true, true)
-                SendNUIMessage({ type = 'setCameraMode', value = false })
+                SendNUIMessage({
+                    type = 'setCameraMode',
+                    value = false
+                })
             end
-            goto continue  -- v kamera módu přeskočíme zbytek
+            goto continue -- v kamera módu přeskočíme zbytek
         end
 
         -- Inventář
@@ -376,37 +399,34 @@ BoilerPressure = 0
 RegisterNetEvent('bcc-train:BoilerHandler')
 AddEventHandler('bcc-train:BoilerHandler', function(trainCfg)
     BoilerPressure = 0
-    BoilerTemp     = 0
-    
-    local tickMs        = 100 -- Zrychleno na 100 ms pro plynulou fyziku jízdy!
-    local buildPerTick  = 100 / (Config.boiler.buildTime  * (1000 / tickMs))
-    local drainPerTick  = 100 / (Config.boiler.drainTime  * (1000 / tickMs))
-    local lastSent      = -1
+    BoilerTemp = 0
+
+    local tickMs = 100
+    local buildPerTick = 100 / (Config.boiler.buildTime * (1000 / tickMs))
+    local drainPerTick = 100 / (Config.boiler.drainTime * (1000 / tickMs))
+    local lastSent = -1
 
     local tempBuildPerTick = 100 / (Config.boilerTemp.buildTime * (1000 / tickMs))
     local tempDrainPerTick = 100 / (Config.boilerTemp.drainTime * (1000 / tickMs))
-    local lastTempSent     = -1
+    local lastTempSent = -1
 
-    TrainCurrentSpeed      = 0.0 -- Globální sledování rychlosti (využívá menuSetup.lua pro penalizace)
-    local lastPistonPct    = 0   -- Slouží k detekci prudkého zatáhnutí pístů
+    -- Cache pro omezení zpráv do NUI
+    local lastSpeedSent = -1
+    local lastConflictSent = nil
+    local lastSyncedCond = TrainCondition or 100 -- PŘIDÁNO: Sledování uloženého stavu
+    TrainCurrentSpeed = 0.0
+    local lastPistonPct = 0
 
     while MyTrain do
         Wait(tickMs)
 
-        -- =========================================================
-        -- 1. SKOKOVÁ ZTRÁTA TLAKU PŘI PRUDKÉM OTEVŘENÍ PÍSTŮ
-        -- =========================================================
         local pistonDelta = BoilerPistonPct - lastPistonPct
-        if pistonDelta > 10 then 
-            -- Např. skok z 0 na 100 % = ztráta 25 % tlaku okamžitě
+        if pistonDelta > 10 then
             local shockDrain = pistonDelta * 0.25
             BoilerPressure = math.max(0, BoilerPressure - shockDrain)
         end
         lastPistonPct = BoilerPistonPct
 
-        -- =========================================================
-        -- 2. BUDOVÁNÍ TLAKU (Násobeno teplotou a olejem)
-        -- =========================================================
         if EngineStarted then
             local currentBuild = buildPerTick * BoilerEfficiency
             BoilerPressure = math.min(100, BoilerPressure + currentBuild)
@@ -414,36 +434,45 @@ AddEventHandler('bcc-train:BoilerHandler', function(trainCfg)
             BoilerPressure = math.max(0, BoilerPressure - drainPerTick)
         end
 
-        -- =========================================================
-        -- 3. SPOTŘEBA TLAKU (Běžný odtok do pístů)
-        -- =========================================================
         local totalUsagePct = (BoilerPistonPct + BoilerBrakePct) / 100
-        local consumeDrain  = totalUsagePct * Config.boiler.consumptionRate * (tickMs / 1000)
+        local consumeDrain = totalUsagePct * Config.boiler.consumptionRate * (tickMs / 1000)
         BoilerPressure = math.max(0, BoilerPressure - consumeDrain)
 
-        -- Odeslání updatů tlaku do NUI (Optimalizováno)
         local rounded = math.floor(BoilerPressure * 10 + 0.5) / 10
         if math.abs(rounded - lastSent) >= 0.5 then
             lastSent = rounded
             if DrivingMenuOpened then
-                SendNUIMessage({ type = 'boilerUpdate', pressure = rounded })
+                SendNUIMessage({
+                    type = 'boilerUpdate',
+                    pressure = rounded
+                })
             end
         end
 
-        -- Konflikt poškozování (brzdy a plyn naráz nad limitem)
-        local conflict = BoilerPistonPct > Config.boiler.damageThreshold
-                      and BoilerBrakePct  > Config.boiler.damageThreshold
+        local conflict = BoilerPistonPct > Config.boiler.damageThreshold and BoilerBrakePct >
+                             Config.boiler.damageThreshold
         if DrivingMenuOpened and conflict and TrainCondition > 0 then
             TrainCondition = math.max(0, TrainCondition - Config.boiler.damageRate * (tickMs / 1000))
             ConditionUpdate(TrainCondition)
         end
-        if DrivingMenuOpened then
-            SendNUIMessage({ type = 'conflictDamage', active = conflict })
-        end
 
-        -- =========================================================
-        -- 4. TEPLOTA KOTLE A BOOST
-        -- =========================================================
+        -- Optimalizace odeslání NUI pro konflikt (odesílá se jen pokud se změní stav)
+        if conflict ~= lastConflictSent then
+            lastConflictSent = conflict
+            if DrivingMenuOpened then
+                SendNUIMessage({
+                    type = 'conflictDamage',
+                    active = conflict
+                })
+            end
+        end
+        
+        -- Sledování poškození z přetížení / špatného řazení a synchronizace s DB
+        if lastSyncedCond and TrainCondition and math.abs(lastSyncedCond - TrainCondition) >= 1.0 then
+            TriggerServerEvent('bcc-train:SyncTrainCondition', TrainId, TrainCondition)
+            lastSyncedCond = TrainCondition
+        end
+        
         local maxTemp = 100
         if BoilerTempBoostActive then
             maxTemp = 100 + Config.boilerTemp.boostAmount
@@ -459,54 +488,59 @@ AddEventHandler('bcc-train:BoilerHandler', function(trainCfg)
             BoilerTemp = math.max(0, BoilerTemp - tempDrainPerTick)
         end
 
-        -- Přepočet koeficientu výkonu lokomotivy
         BoilerEfficiency = CalcTempEfficiency(BoilerTemp)
 
-        -- Update UI teploměru
         local tempRounded = math.floor(BoilerTemp * 10 + 0.5) / 10
         if math.abs(tempRounded - lastTempSent) >= 0.5 then
             lastTempSent = tempRounded
             if DrivingMenuOpened then
-                SendNUIMessage({ type = 'boilerTempUpdate', temp = tempRounded, boostActive = BoilerTempBoostActive })
+                SendNUIMessage({
+                    type = 'boilerTempUpdate',
+                    temp = tempRounded,
+                    boostActive = BoilerTempBoostActive
+                })
             end
         end
 
-        -- =========================================================
-        -- 5. FYZIKA VLAKU A SETRVAČNOST
-        -- =========================================================
         local targetDir = 0
-        if ForwardActive then targetDir = 1
-        elseif BackwardActive then targetDir = -1
+        if ForwardActive then
+            targetDir = 1
+        elseif BackwardActive then
+            targetDir = -1
         end
 
-        -- Aby měl vlak plnou sílu na max rychlost, musí mít v kotli tlak aspoň 25 %
-        local pressureFactor = math.min(1.0, BoilerPressure / 25.0) 
+        local pressureFactor = math.min(1.0, BoilerPressure / 25.0)
         local powerSpeed = (BoilerPistonPct / 100) * CurrentMaxSpeed * pressureFactor * BoilerEfficiency
 
         if EngineStarted and targetDir ~= 0 then
             local targetVelocity = powerSpeed * targetDir
-            
+
             if targetDir > 0 then
-                -- Jízda Vpřed
                 if TrainCurrentSpeed < targetVelocity then
-                    TrainCurrentSpeed = TrainCurrentSpeed + 0.10 -- Akcelerace (tah pístů)
-                    if TrainCurrentSpeed > targetVelocity then TrainCurrentSpeed = targetVelocity end
+                    TrainCurrentSpeed = TrainCurrentSpeed + 0.10
+                    if TrainCurrentSpeed > targetVelocity then
+                        TrainCurrentSpeed = targetVelocity
+                    end
                 elseif TrainCurrentSpeed > targetVelocity then
-                    TrainCurrentSpeed = TrainCurrentSpeed - 0.02 -- Vypnutí pístů = extrémně dlouhá setrvačnost (coasting)
-                    if TrainCurrentSpeed < targetVelocity then TrainCurrentSpeed = targetVelocity end
+                    TrainCurrentSpeed = TrainCurrentSpeed - 0.02
+                    if TrainCurrentSpeed < targetVelocity then
+                        TrainCurrentSpeed = targetVelocity
+                    end
                 end
             elseif targetDir < 0 then
-                -- Jízda Vzad (Couvání do mínusu)
                 if TrainCurrentSpeed > targetVelocity then
-                    TrainCurrentSpeed = TrainCurrentSpeed - 0.10 
-                    if TrainCurrentSpeed < targetVelocity then TrainCurrentSpeed = targetVelocity end
+                    TrainCurrentSpeed = TrainCurrentSpeed - 0.10
+                    if TrainCurrentSpeed < targetVelocity then
+                        TrainCurrentSpeed = targetVelocity
+                    end
                 elseif TrainCurrentSpeed < targetVelocity then
-                    TrainCurrentSpeed = TrainCurrentSpeed + 0.02 
-                    if TrainCurrentSpeed > targetVelocity then TrainCurrentSpeed = targetVelocity end
+                    TrainCurrentSpeed = TrainCurrentSpeed + 0.02
+                    if TrainCurrentSpeed > targetVelocity then
+                        TrainCurrentSpeed = targetVelocity
+                    end
                 end
             end
         else
-            -- Plný neutrál (vyřazen směr) -> Volnoběh (Coasting)
             if TrainCurrentSpeed > 0 then
                 TrainCurrentSpeed = math.max(0.0, TrainCurrentSpeed - 0.02)
             elseif TrainCurrentSpeed < 0 then
@@ -514,12 +548,8 @@ AddEventHandler('bcc-train:BoilerHandler', function(trainCfg)
             end
         end
 
-        -- =========================================================
-        -- 6. BRZDY (Vždy přebíjí akceleraci)
-        -- =========================================================
         if BoilerBrakePct > 0 then
-            -- 0.5 rychlosti za tick (100 ms) znamená prudké zastavení při 100% zatažení brzd
-            local brakeForce = (BoilerBrakePct / 100) * 0.5 
+            local brakeForce = (BoilerBrakePct / 100) * 0.5
             if TrainCurrentSpeed > 0 then
                 TrainCurrentSpeed = math.max(0.0, TrainCurrentSpeed - brakeForce)
             elseif TrainCurrentSpeed < 0 then
@@ -527,30 +557,44 @@ AddEventHandler('bcc-train:BoilerHandler', function(trainCfg)
             end
         end
 
-        -- Limitace absolutní max rychlosti definované v configu vlaku
-        if TrainCurrentSpeed > CurrentMaxSpeed then TrainCurrentSpeed = CurrentMaxSpeed end
-        if TrainCurrentSpeed < -CurrentMaxSpeed then TrainCurrentSpeed = -CurrentMaxSpeed end
-
-        -- =========================================================
-        -- 7. UPDATE TACHOMETRU A NATIVES (Přebití AI hry)
-        -- =========================================================
-        local absSpeed = math.abs(TrainCurrentSpeed)
-        
-        -- Zobrazení fyzikální rychlosti v UI
-        local displaySpeed = math.floor(absSpeed * 10 + 0.5) / 10
-        if DrivingMenuOpened then
-            SendNUIMessage({ type = 'updateDriving', speed = displaySpeed })
+        if TrainCurrentSpeed > CurrentMaxSpeed then
+            TrainCurrentSpeed = CurrentMaxSpeed
+        end
+        if TrainCurrentSpeed < -CurrentMaxSpeed then
+            TrainCurrentSpeed = -CurrentMaxSpeed
         end
 
-        -- Přinucení enginu hry, aby vlaku neurčoval rychlost 0 a necukal s ním
-        Citizen.InvokeNative(0x9F29999DFDF2AEB8, MyTrain, absSpeed) -- SetTrainMaxSpeed (vždy kladné)
-        Citizen.InvokeNative(0x01021EB2E96B793C, MyTrain, TrainCurrentSpeed) -- SetTrainCruiseSpeed (podporuje mínusové hodnoty)
-        Citizen.InvokeNative(0xDFBA6BBFF7CCAFBB, MyTrain, TrainCurrentSpeed) -- SetTrainSpeed (vynucení hybnosti)
+-- =========================================================
+        -- 7. UPDATE TACHOMETRU A NATIVES (Spolupráce s AI hry)
+        -- =========================================================
+        local absSpeed = math.abs(TrainCurrentSpeed)
+
+        -- Optimalizace pro rychlost: odešle rychlost jen pokud se změnila!
+        local displaySpeed = math.floor(absSpeed * 10 + 0.5) / 10
+        if displaySpeed ~= lastSpeedSent then
+            lastSpeedSent = displaySpeed
+            if DrivingMenuOpened then
+                SendNUIMessage({
+                    type = 'updateDriving',
+                    speed = displaySpeed
+                })
+            end
+        end
+
+        -- 1. Maximální limit necháme trvale na 50.0. 
+        -- Původně se tu nastavovala přesná aktuální rychlost, což způsobovalo 
+        -- tvrdé nárazy do omezovače a to brutální skokové cukání vlaku!
+        Citizen.InvokeNative(0x9F29999DFDF2AEB8, MyTrain, 50.0) -- SetTrainMaxSpeed
+        
+        -- 2. Nastavíme tempomat
+        Citizen.InvokeNative(0x01021EB2E96B793C, MyTrain, TrainCurrentSpeed) -- SetTrainCruiseSpeed
+        
+        -- 3. OPRAVA: Musíme vlak fyzicky postrkovat, jinak se s hráčem uvnitř nehne!
+        Citizen.InvokeNative(0xDFBA6BBFF7CCAFBB, MyTrain, TrainCurrentSpeed) -- SetTrainSpeed
     end
 
-    -- Cleanup při vystoupení / smazání vlaku
-    BoilerPressure   = 0
-    BoilerTemp       = 0
+    BoilerPressure = 0
+    BoilerTemp = 0
     BoilerEfficiency = 1.0
     TrainCurrentSpeed = 0.0
 end)
@@ -574,7 +618,9 @@ AddEventHandler('onResourceStop', function(resourceName)
             stationCfg.NPC = nil
         end
     end
-    SendNUIMessage({ type = 'closeStationMenu' })
+    SendNUIMessage({
+        type = 'closeStationMenu'
+    })
     SetNuiFocus(false, false)
     DisplayRadar(true)
     if DestinationBlip then
@@ -596,11 +642,11 @@ end)
 -- pro hráče, jehož hra crashla.
 
 RegisterCommand('train', function()
-    local trainTrack, junctionIndex = Citizen.InvokeNative(0x09034479E6E3E269, MyTrain, Citizen.PointerValueInt(), Citizen.PointerValueInt())
+    local trainTrack, junctionIndex = Citizen.InvokeNative(0x09034479E6E3E269, MyTrain, Citizen.PointerValueInt(),
+        Citizen.PointerValueInt())
     print(trainTrack)
     print(junctionIndex)
 end)
-
 
 function drawMarker(x, y, z, r, g, b)
     Citizen.InvokeNative(0x2A32FAA57B937173, 0x94FDAE17, x, y, z, 0, 0, 0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.4, r, g, b, 150.0,
@@ -760,92 +806,77 @@ Junctions = {{
     track2 = vector3(2665.962158, -398.157990, 43.396107),
     track = "trains3",
     junctionIndex = 1
-},
-{
+}, {
     name = "Old West 1",
     coords = vector3(-1627.420044, -2326.340088, 44.330002),
     track1 = vector3(-1630.926514, -2308.498047, 45.218784),
     track2 = vector3(-1639.758423, -2309.636719, 45.155766),
     track = "trains_old_west01",
     junctionIndex = 1
-}
-,
-{
+}, {
     name = "Old West 2",
     coords = vector3(-2510.020020, -2372.770020, 60.020000),
     track1 = vector3(-2501.413574, -2341.509766, 62.685886),
     track2 = vector3(-2508.441895, -2347.535645, 62.123573),
     track = "trains_old_west01",
     junctionIndex = 1
-},
-{
+}, {
     name = "Old West 3",
     coords = vector3(-2174.406250, -2509.110596, 65.804878),
     track1 = vector3(-2199.934082, -2520.785645, 65.898689),
     track2 = vector3(-2178.746094, -2525.684082, 66.028557),
     track = "trains_old_west01",
     junctionIndex = 1
-},
-{
+}, {
     name = "Old West 4",
     coords = vector3(-2159.443604, -2540.838867, 67.842941),
     track1 = vector3(-2186.834717, -2529.749268, 66.295631),
     track2 = vector3(-2179.162598, -2525.189697, 65.989052),
     track = "trains_old_west01",
     junctionIndex = 1
-}
-,
-{
+}, {
     name = "Rigs Cross 1",
     coords = vector3(-1007.670898, -709.998108, 65.196518),
     track2 = vector3(-1005.099243, -678.735352, 68.786194),
     track1 = vector3(-1011.117737, -672.726013, 69.467293),
     junctionIndex = 1
-}
-,
-{
+}, {
     name = "Rigs Cross 2",
     coords = vector3(-937.046936, -635.700623, 72.720558),
     track2 = vector3(-973.876099, -634.156433, 73.426010),
     track1 = vector3(-979.126831, -643.368774, 73.465797),
     junctionIndex = 1
-},
-{
+}, {
     name = "Rigs Cross 3",
     coords = vector3(-1053.802124, -611.634155, 77.262756),
     track2 = vector3(-1030.897095, -621.073486, 75.096199),
     track1 = vector3(-1028.029053, -629.928040, 74.785072),
     junctionIndex = 1
-}
-
-,
-{
+}, {
     name = "BW Cross 1",
     coords = vector3(-1007.600159, -990.305115, 61.329205),
     track1 = vector3(-1010.983582, -1023.050232, 60.990826),
     track2 = vector3(-1004.002502, -1029.841309, 60.756386),
     junctionIndex = 1
-}
-,
-{
+}, {
     name = "BW Cross 2",
     coords = vector3(-1069.656128, -1090.383301, 62.070637),
     track2 = vector3(-1048.192749, -1078.441895, 60.959965),
     track1 = vector3(-1037.042603, -1080.799805, 60.593048),
     junctionIndex = 1
-},
-{
+}, {
     name = "BW Cross 3",
-    coords =vector3(-939.449463, -1123.162231, 51.054241),
+    coords = vector3(-939.449463, -1123.162231, 51.054241),
     track2 = vector3(-976.829895, -1084.106445, 56.659454),
     track1 = vector3(-976.548340, -1094.416016, 56.041012),
     junctionIndex = 1
-}
-}
+}}
 
 -- Vizuální zobrazení výhybek: zelená = aktivní trať, oranžová = neaktivní
 CreateThread(function()
-    while not LocalPlayer.state or not LocalPlayer.state.Character do Wait(1000) end
+    while not LocalPlayer.state or not LocalPlayer.state.Character do
+        Wait(1000)
+    end
     while true do
         local pause = 1000
         if LocalPlayer.state.Character and LocalPlayer.state.Character.Job == Config.Job then
@@ -854,8 +885,9 @@ CreateThread(function()
                 if #(playerCoords - junction.coords) <= 80.0 then
                     pause = 1
                     local state = TrackSwitchActive
-                    local stateLabel = state and " [\u{2192} přepnuto]" or " [\u{2192} výchozí]"
-                    DrawText3D(junction.coords.x, junction.coords.y, junction.coords.z + 1.0, junction.name .. stateLabel)
+                    local stateLabel = state and "[\u{2192} přepnuto]" or " [\u{2192} výchozí]"
+                    DrawText3D(junction.coords.x, junction.coords.y, junction.coords.z + 1.0,
+                        junction.name .. stateLabel)
                     if state then
                         drawMarker(junction.track1.x, junction.track1.y, junction.track1.z, 0, 220, 0)
                         drawMarker(junction.track2.x, junction.track2.y, junction.track2.z, 220, 80, 0)
@@ -870,10 +902,10 @@ CreateThread(function()
     end
 end)
 
-
-
 CreateThread(function()
-    repeat Wait(5000) until LocalPlayer.state.IsInSession
+    repeat
+        Wait(5000)
+    until LocalPlayer.state.IsInSession
     local isNuiFocused = false
 
     while true do
@@ -904,5 +936,27 @@ CreateThread(function()
             end
         end
         Wait(sleep)
+    end
+end)
+
+-- Přijímání pozic od serveru a updatování blipů na mapě
+RegisterNetEvent('bcc-train:SyncAllCoords')
+AddEventHandler('bcc-train:SyncAllCoords', function(coordsTable)
+    for trainId, coords in pairs(coordsTable) do
+        -- Aktualizujeme pouze pokud se nejedná o náš vlak a máme pro něj založený blip
+        if trainId ~= TrainId and OtherTrainBlips[trainId] then
+            SetBlipCoords(OtherTrainBlips[trainId], coords.x, coords.y, coords.z)
+        end
+    end
+end)
+
+-- Pokud my řídíme vlak, každé 2 vteřiny nahlásíme svou polohu serveru
+CreateThread(function()
+    while true do
+        Wait(2000)
+        if MyTrain and TrainId then
+            local coords = GetEntityCoords(MyTrain)
+            TriggerServerEvent('bcc-train:UpdateCoords', TrainId, coords)
+        end
     end
 end)

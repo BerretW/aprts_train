@@ -98,15 +98,12 @@ function HandleDrivingAction(action, value)
             speed = DrivingSpeed
         })
 
-    elseif action == 'startEngine' then
+   elseif action == 'startEngine' then
         if TrainFuel >= 1 and TrainCondition >= 1 then
             VORPcore.NotifyRightTip(_U('engineStarted'), 4000)
             EngineStarted = true
-            SendNUIMessage({
-                type = 'updateDriving',
-                engineStarted = true
-            })
-            MaxSpeedCalc(DrivingSpeed)
+            SendNUIMessage({ type = 'updateDriving', engineStarted = true })
+            -- Smazali jsme volání MaxSpeedCalc, rychlost si řídí fyzika vlaku sama
         else
             VORPcore.NotifyRightTip(_U('checkTrain'), 4000)
         end
@@ -122,36 +119,24 @@ function HandleDrivingAction(action, value)
             forwardActive = false,
             backwardActive = false
         })
-        Citizen.InvokeNative(0x9F29999DFDF2AEB8, MyTrain, 0.0) -- SetTrainMaxSpeed
+        -- Odstraněno: Citizen.InvokeNative(0x9F29999DFDF2AEB8, MyTrain, 0.0) pro plynulý dojezd vlaku po vypnutí motoru!
 
    elseif action == 'forward' then
-        if not EngineStarted then
-            VORPcore.NotifyRightTip(_U('engineMustBeStarted'), 4000)
-            return
-        end
-        if BackwardActive then
-            VORPcore.NotifyRightTip(_U('backwardsIsOn'), 4000)
-            return
-        end
+        if not EngineStarted then return VORPcore.NotifyRightTip(_U('engineMustBeStarted'), 4000) end
+        if BackwardActive then return VORPcore.NotifyRightTip(_U('backwardsIsOn'), 4000) end
         if ForwardActive then
             VORPcore.NotifyRightTip(_U('forwardDisbaled'), 4000)
             ForwardActive = false
             SendNUIMessage({ type = 'updateDriving', forwardActive = false })
             return
         end
-        if TrainFuel <= 0 then
-            VORPcore.NotifyRightTip(_U('noCruiseNoFuel'), 4000)
-            return
-        end
+        if TrainFuel <= 0 then return VORPcore.NotifyRightTip(_U('noCruiseNoFuel'), 4000) end
         
-        -- === PENALIZACE ZA ŠPATNÉ ŘAZENÍ ===
-        -- Pokud vlak couvá (rychlost je menší než -0.5) a hodíme tam Vpřed
         if TrainCurrentSpeed < -0.5 then
-            TrainCondition = math.max(0, TrainCondition - 15) -- 15 % poškození stavu vlaku!
+            TrainCondition = math.max(0, TrainCondition - 15)
             ConditionUpdate(TrainCondition)
             VORPcore.NotifyRightTip("~r~Skřípot kovu!~q~ Zařazení vpřed během couvání poškodilo mechanismus!", 5000)
         end
-        -- ===================================
 
         ForwardActive = true
         SendNUIMessage({ type = 'updateDriving', forwardActive = true })
@@ -161,7 +146,7 @@ function HandleDrivingAction(action, value)
             Wait(1000)
             if not MyTrain then ForwardActive = false; break end
             local distance = #(GetEntityCoords(MyTrain) - vector3(517.56, 1757.27, 188.34))
-            if distance <= 1000 then
+            if distance <= 150 then -- Opravena vzdálenost z obřích 1000 na adekvátních 150 jednotek k mostu!
                 VORPcore.NotifyRightTip(_U('cruiseDisabledInRegion'), 4000)
                 ForwardActive = false
                 SendNUIMessage({ type = 'updateDriving', forwardActive = false })
@@ -170,33 +155,21 @@ function HandleDrivingAction(action, value)
         end
 
     elseif action == 'backward' then
-        if not EngineStarted then
-            VORPcore.NotifyRightTip(_U('engineMustBeStarted'), 4000)
-            return
-        end
-        if ForwardActive then
-            VORPcore.NotifyRightTip(_U('forwardsIsOn'), 4000)
-            return
-        end
+        if not EngineStarted then return VORPcore.NotifyRightTip(_U('engineMustBeStarted'), 4000) end
+        if ForwardActive then return VORPcore.NotifyRightTip(_U('forwardsIsOn'), 4000) end
         if BackwardActive then
             VORPcore.NotifyRightTip(_U('backwardDisabled'), 4000)
             BackwardActive = false
             SendNUIMessage({ type = 'updateDriving', backwardActive = false })
             return
         end
-        if TrainFuel <= 0 then
-            VORPcore.NotifyRightTip(_U('noCruiseNoFuel'), 4000)
-            return
-        end
+        if TrainFuel <= 0 then return VORPcore.NotifyRightTip(_U('noCruiseNoFuel'), 4000) end
 
-        -- === PENALIZACE ZA ŠPATNÉ ŘAZENÍ ===
-        -- Pokud vlak jede vpřed (rychlost je větší než 0.5) a hodíme tam Zpátečku
         if TrainCurrentSpeed > 0.5 then
-            TrainCondition = math.max(0, TrainCondition - 15) -- 15 % poškození stavu vlaku!
+            TrainCondition = math.max(0, TrainCondition - 15)
             ConditionUpdate(TrainCondition)
             VORPcore.NotifyRightTip("~r~Skřípot kovu!~q~ Zařazení zpátečky za jízdy drasticky poškodilo mechanismus!", 5000)
         end
-        -- ===================================
 
         BackwardActive = true
         SendNUIMessage({ type = 'updateDriving', backwardActive = true })
@@ -206,7 +179,7 @@ function HandleDrivingAction(action, value)
             Wait(1000)
             if not MyTrain then BackwardActive = false; break end
             local distance = #(GetEntityCoords(MyTrain) - vector3(517.56, 1757.27, 188.34))
-            if distance <= 1000 then
+            if distance <= 150 then -- Opravena vzdálenost z obřích 1000 na 150
                 VORPcore.NotifyRightTip(_U('cruiseDisabledInRegion'), 4000)
                 BackwardActive = false
                 SendNUIMessage({ type = 'updateDriving', backwardActive = false })

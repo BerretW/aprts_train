@@ -412,52 +412,44 @@ dirPosBwd.addEventListener('click', () => {
 //  • Efektivní rychlost = piston − brake (dva protichůdné tlaky)
 //  • Spotřeba obou snižuje boilerPressure v Lua
 // ───────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────
+//  ANALOG PRESSURE SIMULATION  (150 ms ticks)
+// ───────────────────────────────────────────────────────────
 setInterval(() => {
-    const boiler = S.boilerPressure;  // 0–100, dostupný tlak kotle
-
-    // ── Pístový tlak (ventil, pomalý nárůst / rychlý pokles) ──
-    if (!S.engine || boiler <= 0) {
+    // 1. Pístový tlak (pouze vyhlazení polohy červeného ventilu)
+    // DŮLEŽITÉ: Již není svázáno s tlakem kotle, aby nevznikla oscilace a lagy!
+    if (!S.engine) {
         S.pistonPressure = Math.max(0, S.pistonPressure - 4);
     } else {
-        const target = Math.min(S.targetPressure, boiler);
-        const diff   = target - S.pistonPressure;
+        const diff = S.targetPressure - S.pistonPressure;
         if (Math.abs(diff) < 0.5) {
-            S.pistonPressure = target;
+            S.pistonPressure = S.targetPressure;
         } else {
             S.pistonPressure += Math.sign(diff) * (diff > 0 ? 1.5 : 3.0);
         }
-        S.pistonPressure = Math.max(0, Math.min(boiler, S.pistonPressure));
     }
 
-    // ── Brzdový tlak (páka, rychlý nárůst / střední pokles) ──
-    if (!S.engine || boiler <= 0) {
-        S.brakePressure = Math.max(0, S.brakePressure - 6);
+    // 2. Brzdový tlak (pouze vyhlazení polohy brzdové páky)
+    const diffBrake = S.brakePos - S.brakePressure;
+    if (Math.abs(diffBrake) < 0.5) {
+        S.brakePressure = S.brakePos;
     } else {
-        const targetBrake = (S.brakePos / 100) * boiler;
-        const diff        = targetBrake - S.brakePressure;
-        if (Math.abs(diff) < 0.5) {
-            S.brakePressure = targetBrake;
-        } else {
-            // Brzdy nastupují rychleji (4 %/tick) než odchází (2 %/tick)
-            S.brakePressure += Math.sign(diff) * (diff > 0 ? 4.0 : 2.0);
-        }
-        S.brakePressure = Math.max(0, Math.min(boiler, S.brakePressure));
+        S.brakePressure += Math.sign(diffBrake) * (diffBrake > 0 ? 4.0 : 2.0);
     }
 
-    // ── Aktualizace budíků (nezávisle na sobě) ──
+    // 3. Aktualizace UI budíků - VIZUÁLNĚ je tlak omezen tím, kolik je reálně v kotli
+    const boiler = S.boilerPressure;
+    const visualPiston = Math.min(S.pistonPressure, boiler);
+    const visualBrake  = Math.min(S.brakePressure, boiler);
+    
     currentPctEl.textContent = Math.round(S.pistonPressure) + '%';
-    applyPistonGauge(S.pistonPressure);
-    applyBrakeGauge(S.brakePressure);
+    applyPistonGauge(visualPiston);
+    applyBrakeGauge(visualBrake);
 
-    // ── Efektivní rychlost = piston − brake (protichůdné síly) ──
-    const netPressure    = Math.max(0, S.pistonPressure - S.brakePressure);
-    const effectiveSpeed = Math.round(netPressure / 100 * S.maxSpeed);
-    if (effectiveSpeed !== S._lastSentSpeed) {
-        S._lastSentSpeed = effectiveSpeed;
-        post('drivingAction', { action: 'setSpeed', value: effectiveSpeed });
-    }
+    // 4. Odstraněn výpočet effectiveSpeed a odesílání setSpeed! 
+    // Rychlost vlaku si nyní čistě a plynule počítá setrvačná fyzika v LUA.
 
-    // ── Lua: spotřeba tlaku (snižuje boilerPressure) ──
+    // 5. Odeslání mechanických poloh pák do LUA (odesílá se jen při změně pohybu hráče)
     const rp = Math.round(S.pistonPressure);
     const rb = Math.round(S.brakePressure);
     if (rp !== S._lastSentPistons || rb !== S._lastSentBrakes) {

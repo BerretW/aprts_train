@@ -449,33 +449,23 @@ local function CreateOtherTrainBlip(data)
         RemoveBlip(OtherTrainBlips[data.trainId])
         OtherTrainBlips[data.trainId] = nil
     end
-    Citizen.CreateThread(function()
-        local netId    = data.netId
-        local attempts = 0
-        while not NetworkDoesEntityExistWithNetworkId(netId) and attempts < 60 do
-            Wait(200)
-            attempts = attempts + 1
-        end
-        if not NetworkDoesEntityExistWithNetworkId(netId) then return end
-        local ent = NetworkGetEntityFromNetworkId(netId)
-        if not DoesEntityExist(ent) then return end
-        -- Znovu zkontrolovat, zda to není náš vlastní vlak (race condition)
-        if data.trainId == TrainId then return end
 
-        local blipHandle = Citizen.InvokeNative(0x23f74c2fda6e7c61, -1749618580, ent) -- BlipAddForEntity
-        local trainCfg = nil
-        for _, cfg in pairs(Trains) do
-            if cfg.model == data.trainModel then trainCfg = cfg; break end
-        end
-        if trainCfg and trainCfg.blip then
-            SetBlipSprite(blipHandle, joaat(trainCfg.blip.sprite), true)
-            local blipName = (data.engineerName and data.engineerName ~= '') and data.engineerName or trainCfg.blip.name
-            Citizen.InvokeNative(0x9CB1A1623062F402, blipHandle, blipName) -- SetBlipNameFromPlayerString
-            Citizen.InvokeNative(0x662D364ABF16DE2F, blipHandle,
-                joaat(Config.blipColors[trainCfg.blip.color])) -- BlipAddModifier
-        end
-        OtherTrainBlips[data.trainId] = blipHandle
-    end)
+    -- Vytvoříme blip na souřadnicích (0,0,0). O jeho posouvání se bude starat server sync.
+    -- Tím obcházíme mizení entit na dálku v rámci OneSyncu.
+    local blipHandle = Citizen.InvokeNative(0x554d9d53f696d002, 1664425300, 0.0, 0.0, 0.0) -- BlipAddForCoords
+    
+    local trainCfg = nil
+    for _, cfg in pairs(Trains) do
+        if cfg.model == data.trainModel then trainCfg = cfg; break end
+    end
+    if trainCfg and trainCfg.blip then
+        -- OPRAVA: Odstraněno joaat()
+        SetBlipSprite(blipHandle, trainCfg.blip.sprite, true)
+        local blipName = (data.engineerName and data.engineerName ~= '') and data.engineerName or trainCfg.blip.name
+        Citizen.InvokeNative(0x9CB1A1623062F402, blipHandle, blipName) -- SetBlipNameFromPlayerString
+        Citizen.InvokeNative(0x662D364ABF16DE2F, blipHandle, joaat(Config.blipColors[trainCfg.blip.color])) -- BlipAddModifier
+    end
+    OtherTrainBlips[data.trainId] = blipHandle
 end
 
 RegisterNetEvent('bcc-train:SyncTrainBlip')
