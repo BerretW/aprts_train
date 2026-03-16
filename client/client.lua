@@ -373,11 +373,12 @@ end)
 --  BOILER HANDLER — tlak a teplota kotle
 -- ─────────────────────────────────────────────────────────────────
 BoilerPressure = 0
-
+RegisterNetEvent('bcc-train:BoilerHandler')
 AddEventHandler('bcc-train:BoilerHandler', function(trainCfg)
     BoilerPressure = 0
     BoilerTemp     = 0
-    local tickMs        = 500
+    
+    local tickMs        = 100 -- Zrychleno na 100 ms pro plynulou fyziku jízdy!
     local buildPerTick  = 100 / (Config.boiler.buildTime  * (1000 / tickMs))
     local drainPerTick  = 100 / (Config.boiler.drainTime  * (1000 / tickMs))
     local lastSent      = -1
@@ -386,22 +387,41 @@ AddEventHandler('bcc-train:BoilerHandler', function(trainCfg)
     local tempDrainPerTick = 100 / (Config.boilerTemp.drainTime * (1000 / tickMs))
     local lastTempSent     = -1
 
+    TrainCurrentSpeed      = 0.0 -- Globální sledování rychlosti (využívá menuSetup.lua pro penalizace)
+    local lastPistonPct    = 0   -- Slouží k detekci prudkého zatáhnutí pístů
+
     while MyTrain do
         Wait(tickMs)
 
-        -- Budování / odvětrávání tlaku
+        -- =========================================================
+        -- 1. SKOKOVÁ ZTRÁTA TLAKU PŘI PRUDKÉM OTEVŘENÍ PÍSTŮ
+        -- =========================================================
+        local pistonDelta = BoilerPistonPct - lastPistonPct
+        if pistonDelta > 10 then 
+            -- Např. skok z 0 na 100 % = ztráta 25 % tlaku okamžitě
+            local shockDrain = pistonDelta * 0.25
+            BoilerPressure = math.max(0, BoilerPressure - shockDrain)
+        end
+        lastPistonPct = BoilerPistonPct
+
+        -- =========================================================
+        -- 2. BUDOVÁNÍ TLAKU (Násobeno teplotou a olejem)
+        -- =========================================================
         if EngineStarted then
-            BoilerPressure = math.min(100, BoilerPressure + buildPerTick)
+            local currentBuild = buildPerTick * BoilerEfficiency
+            BoilerPressure = math.min(100, BoilerPressure + currentBuild)
         else
-            BoilerPressure = math.max(0,   BoilerPressure - drainPerTick)
+            BoilerPressure = math.max(0, BoilerPressure - drainPerTick)
         end
 
-        -- Spotřeba tlaku: písty + brzdy odebírají z kotle
-        local totalUsagePct = (BoilerPistonPct + BoilerBrakePct) / 100  -- 0–2
+        -- =========================================================
+        -- 3. SPOTŘEBA TLAKU (Běžný odtok do pístů)
+        -- =========================================================
+        local totalUsagePct = (BoilerPistonPct + BoilerBrakePct) / 100
         local consumeDrain  = totalUsagePct * Config.boiler.consumptionRate * (tickMs / 1000)
         BoilerPressure = math.max(0, BoilerPressure - consumeDrain)
 
-        -- Pošli aktualizaci NUI (jen při změně ≥ 0.5 %)
+        -- Odeslání updatů tlaku do NUI (Optimalizováno)
         local rounded = math.floor(BoilerPressure * 10 + 0.5) / 10
         if math.abs(rounded - lastSent) >= 0.5 then
             lastSent = rounded
@@ -410,7 +430,7 @@ AddEventHandler('bcc-train:BoilerHandler', function(trainCfg)
             end
         end
 
-        -- Poškozování: simultánní tlak v pístech + brzdách (konflikt)
+        -- Konflikt poškozování (brzdy a plyn naráz nad limitem)
         local conflict = BoilerPistonPct > Config.boiler.damageThreshold
                       and BoilerBrakePct  > Config.boiler.damageThreshold
         if DrivingMenuOpened and conflict and TrainCondition > 0 then
@@ -421,7 +441,9 @@ AddEventHandler('bcc-train:BoilerHandler', function(trainCfg)
             SendNUIMessage({ type = 'conflictDamage', active = conflict })
         end
 
-        -- ── TEPLOTA KOTLE ──
+        -- =========================================================
+        -- 4. TEPLOTA KOTLE A BOOST
+        -- =========================================================
         local maxTemp = 100
         if BoilerTempBoostActive then
             maxTemp = 100 + Config.boilerTemp.boostAmount
@@ -437,29 +459,100 @@ AddEventHandler('bcc-train:BoilerHandler', function(trainCfg)
             BoilerTemp = math.max(0, BoilerTemp - tempDrainPerTick)
         end
 
-        -- Aktualizuj koeficient výkonu a přeaplikuj rychlost
+        -- Přepočet koeficientu výkonu lokomotivy
         BoilerEfficiency = CalcTempEfficiency(BoilerTemp)
-        if EngineStarted and DrivingSpeed > 0 then
-            MaxSpeedCalc(DrivingSpeed)
-        end
 
-        -- Pošli aktualizaci teploty do NUI (jen při změně ≥ 0.5 %)
+        -- Update UI teploměru
         local tempRounded = math.floor(BoilerTemp * 10 + 0.5) / 10
         if math.abs(tempRounded - lastTempSent) >= 0.5 then
             lastTempSent = tempRounded
             if DrivingMenuOpened then
-                SendNUIMessage({
-                    type        = 'boilerTempUpdate',
-                    temp        = tempRounded,
-                    boostActive = BoilerTempBoostActive,
-                })
+                SendNUIMessage({ type = 'boilerTempUpdate', temp = tempRounded, boostActive = BoilerTempBoostActive })
             end
         end
+
+        -- =========================================================
+        -- 5. FYZIKA VLAKU A SETRVAČNOST
+        -- =========================================================
+        local targetDir = 0
+        if ForwardActive then targetDir = 1
+        elseif BackwardActive then targetDir = -1
+        end
+
+        -- Aby měl vlak plnou sílu na max rychlost, musí mít v kotli tlak aspoň 25 %
+        local pressureFactor = math.min(1.0, BoilerPressure / 25.0) 
+        local powerSpeed = (BoilerPistonPct / 100) * CurrentMaxSpeed * pressureFactor * BoilerEfficiency
+
+        if EngineStarted and targetDir ~= 0 then
+            local targetVelocity = powerSpeed * targetDir
+            
+            if targetDir > 0 then
+                -- Jízda Vpřed
+                if TrainCurrentSpeed < targetVelocity then
+                    TrainCurrentSpeed = TrainCurrentSpeed + 0.10 -- Akcelerace (tah pístů)
+                    if TrainCurrentSpeed > targetVelocity then TrainCurrentSpeed = targetVelocity end
+                elseif TrainCurrentSpeed > targetVelocity then
+                    TrainCurrentSpeed = TrainCurrentSpeed - 0.02 -- Vypnutí pístů = extrémně dlouhá setrvačnost (coasting)
+                    if TrainCurrentSpeed < targetVelocity then TrainCurrentSpeed = targetVelocity end
+                end
+            elseif targetDir < 0 then
+                -- Jízda Vzad (Couvání do mínusu)
+                if TrainCurrentSpeed > targetVelocity then
+                    TrainCurrentSpeed = TrainCurrentSpeed - 0.10 
+                    if TrainCurrentSpeed < targetVelocity then TrainCurrentSpeed = targetVelocity end
+                elseif TrainCurrentSpeed < targetVelocity then
+                    TrainCurrentSpeed = TrainCurrentSpeed + 0.02 
+                    if TrainCurrentSpeed > targetVelocity then TrainCurrentSpeed = targetVelocity end
+                end
+            end
+        else
+            -- Plný neutrál (vyřazen směr) -> Volnoběh (Coasting)
+            if TrainCurrentSpeed > 0 then
+                TrainCurrentSpeed = math.max(0.0, TrainCurrentSpeed - 0.02)
+            elseif TrainCurrentSpeed < 0 then
+                TrainCurrentSpeed = math.min(0.0, TrainCurrentSpeed + 0.02)
+            end
+        end
+
+        -- =========================================================
+        -- 6. BRZDY (Vždy přebíjí akceleraci)
+        -- =========================================================
+        if BoilerBrakePct > 0 then
+            -- 0.5 rychlosti za tick (100 ms) znamená prudké zastavení při 100% zatažení brzd
+            local brakeForce = (BoilerBrakePct / 100) * 0.5 
+            if TrainCurrentSpeed > 0 then
+                TrainCurrentSpeed = math.max(0.0, TrainCurrentSpeed - brakeForce)
+            elseif TrainCurrentSpeed < 0 then
+                TrainCurrentSpeed = math.min(0.0, TrainCurrentSpeed + brakeForce)
+            end
+        end
+
+        -- Limitace absolutní max rychlosti definované v configu vlaku
+        if TrainCurrentSpeed > CurrentMaxSpeed then TrainCurrentSpeed = CurrentMaxSpeed end
+        if TrainCurrentSpeed < -CurrentMaxSpeed then TrainCurrentSpeed = -CurrentMaxSpeed end
+
+        -- =========================================================
+        -- 7. UPDATE TACHOMETRU A NATIVES (Přebití AI hry)
+        -- =========================================================
+        local absSpeed = math.abs(TrainCurrentSpeed)
+        
+        -- Zobrazení fyzikální rychlosti v UI
+        local displaySpeed = math.floor(absSpeed * 10 + 0.5) / 10
+        if DrivingMenuOpened then
+            SendNUIMessage({ type = 'updateDriving', speed = displaySpeed })
+        end
+
+        -- Přinucení enginu hry, aby vlaku neurčoval rychlost 0 a necukal s ním
+        Citizen.InvokeNative(0x9F29999DFDF2AEB8, MyTrain, absSpeed) -- SetTrainMaxSpeed (vždy kladné)
+        Citizen.InvokeNative(0x01021EB2E96B793C, MyTrain, TrainCurrentSpeed) -- SetTrainCruiseSpeed (podporuje mínusové hodnoty)
+        Citizen.InvokeNative(0xDFBA6BBFF7CCAFBB, MyTrain, TrainCurrentSpeed) -- SetTrainSpeed (vynucení hybnosti)
     end
 
+    -- Cleanup při vystoupení / smazání vlaku
     BoilerPressure   = 0
     BoilerTemp       = 0
     BoilerEfficiency = 1.0
+    TrainCurrentSpeed = 0.0
 end)
 
 -- Cleanup
@@ -793,6 +886,16 @@ CreateThread(function()
 
             DisableAllControlActions(0)
             EnableControlAction(0, GetHashKey("INPUT_PUSH_TO_TALK"), true)
+
+            -- ==== PŘIDANÁ ČÁST PRO KAMERA MÓD ====
+            if CameraMode then
+                -- Povolit stisk mezerníku pro návrat zpět
+                EnableControlAction(0, joaat("INPUT_JUMP"), true)
+                -- Povolit rozhlížení myší / ovladačem
+                EnableControlAction(0, joaat("INPUT_LOOK_LR"), true)
+                EnableControlAction(0, joaat("INPUT_LOOK_UD"), true)
+            end
+            -- =====================================
         else
             sleep = 1000
             if isNuiFocused then
@@ -802,4 +905,4 @@ CreateThread(function()
         end
         Wait(sleep)
     end
-end) 
+end)

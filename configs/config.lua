@@ -30,12 +30,11 @@ Config.cruiseControl = true -- Set true to Enable Cruise Control
 
 -- Tlak kotle (boiler pressure)
 Config.boiler = {
-    buildTime       = 60,  -- sekund od 0 do 100 % tlaku při běžícím motoru
-    drainTime       = 30,  -- sekund od 100 do 0 % po zastavení motoru
-    consumptionRate = 3.0, -- % tlaku kotle spotřebovaného za sekundu na každých 100 % použití
-                           -- při 50 % výkonu pístů = ~1.5 %/s spotřeba ≈ 1.67 %/s produkce → udržitelné
-    damageRate      = 3,   -- poškození za sekundu při konfliktu písty + brzdy
-    damageThreshold = 15,  -- minimální % tlaku v obou pro spuštění poškozování
+    buildTime       = 60,  
+    drainTime       = 30,  
+    consumptionRate = 1.5, -- Změněno z 3.0 na 1.5
+    damageRate      = 3,   
+    damageThreshold = 15,  
 }
 -----------------------------------------------------
 
